@@ -1,8 +1,10 @@
-# Credit Card Fraud Detection — Preprocessing Workflow
+# Credit Card Fraud Detection — Model-Aware ML Pipeline
 
-## Project Overview
+**COMP6337 — Data Mining | University of Southampton | Group Project (Individual Contribution)**
 
-This folder contains the preprocessing workflow for our Data Mining coursework on **Credit Card Fraud Detection** using the **MLG-ULB credit card fraud dataset**.
+A reproducible, leakage-safe machine learning pipeline for rare-event fraud detection on the MLG-ULB credit card transaction dataset. Compares supervised classifiers and anomaly detection methods under a unified preprocessing framework, evaluated using imbalance-sensitive metrics designed to reflect real financial deployment constraints.
+
+is folder contains the preprocessing workflow for our Data Mining coursework on **Credit Card Fraud Detection** using the **MLG-ULB credit card fraud dataset**.
 
 The purpose of this part of the project is to create a reproducible and well-documented preprocessing pipeline that can be used by all team members before model training.
 
@@ -40,6 +42,33 @@ DM_CW/
 └── README.md
 ```
 
+## Results
+
+| Model | Fraud Detected / 95 | False Positives | Precision | Recall | PR-AUC |
+|-------|-------------------|-----------------|-----------|--------|--------|
+| Logistic Regression | 55 | 10 | 0.85 | 0.58 | 0.698 |
+| LightGBM (class-weighted) | 73 | 11 | 0.87 | 0.77 | 0.804 |
+| XGBoost (class-weighted) | 83 | 12 | 0.874 | 0.847 | 0.880 |
+| **Random Forest (SMOTE)** | **72** | **6** | **0.92** | **0.76** | **0.814** |
+| Isolation Forest (tuned) | 35 | 214 | 0.14 | 0.37 | 0.682 |
+| One-Class SVM | 36 | 166 | 0.18 | 0.38 | 0.236 |
+
+> **Evaluation note:** Accuracy is not reported. Under 0.17% fraud prevalence, a model predicting all transactions as legitimate achieves >99% accuracy while detecting zero fraud. PR-AUC is the primary evaluation metric.
+
+---
+
+## Dataset
+
+[MLG-ULB Credit Card Fraud Detection Dataset](https://www.kaggle.com/datasets/mlg-ulb/creditcardfraud) — available on Kaggle.
+
+- **284,807 transactions** | **492 fraud cases** (0.17% fraud rate)
+- 28 anonymised PCA-transformed features (V1–V28) + raw Time, Amount, Class
+- After duplicate removal: 283,726 transactions | 473 fraud cases
+
+Download `creditcard.csv` from Kaggle and place it in the `/data` directory before running.
+
+---
+
 ### Explanation of each component
 
 | Item | Description |
@@ -52,85 +81,65 @@ DM_CW/
 
 ---
 
-## Dataset Instructions
+## Pipeline Architecture
 
-This project uses the **MLG-ULB Credit Card Fraud Detection dataset**.
+### Preprocessing (individual contribution)
 
-**Expected file name**
+The preprocessing stage is designed as a **leakage-safe, model-aware pipeline** rather than a mechanical cleaning step.
 
-```text
-creditcard.csv
-```
+**Data integrity:**
+- Schema validation — confirms expected columns and types before any transformation
+- Column-level audit — data types, missing values, unique counts
+- 1,081 exact duplicate rows removed (0.38% of dataset)
+- Class imbalance analysis — fraud proportion preserved throughout
 
-**Expected location**
+**Feature inspection:**
+- `Amount` variable: skewness of 16.979 → RobustScaler selected over StandardScaler
+- `Time` variable: minimal skew (-0.036), consistent range
 
-```text
-DM_CW/data/creditcard.csv
-```
+**Leakage-safe split:**
+- Scaler fitted on training set **only**, then applied to train and test separately
+- Stratified 80:20 split (fixed seed=42) — preserves fraud class proportions across subsets
+- Result: 226,980 training / 56,746 test | 0.1665% fraud (train) / 0.1674% fraud (test)
+- Stratified 5-fold cross-validation configured for downstream modelling
+
+**Dual preprocessing pathways:**
+| Pathway | Models | Rationale |
+|---------|--------|-----------|
+| Minimal (unscaled) | RF, XGBoost, LightGBM, Isolation Forest | Split-based — scale-invariant |
+| Robust-scaled | Logistic Regression, One-Class SVM | Distance/optimisation — scale-sensitive |
+
+**Outputs exported:** `X_train_min.csv`, `X_test_min.csv`, `X_train_rs.csv`, `X_test_rs.csv`, `y_train.csv`, `y_test.csv`, `preprocessing_metadata.json`
+
+### Anomaly Detection (individual contribution)
+
+**Isolation Forest** — evaluated across three configurations:
+- Baseline (default contamination)
+- Contamination-aligned (contamination = 0.0017 matching dataset fraud rate)
+- Tuned (optimised contamination for precision-recall balance)
+
+Best Isolation Forest (tuned): 35 fraud detected, 214 false positives, PR-AUC 0.682.
+
+Result: supervised methods substantially outperform anomaly detection on this dataset, consistent with the labelled PCA feature space where fraud is not well-separated as statistical outliers.
 
 ---
 
-## Environment Setup
-
-It is recommended to run the notebook inside a **separate Python virtual environment** to avoid dependency conflicts.
-
-### Step 1 — Open the project folder
-
-Navigate to the project root directory:
+## How to Run
 
 ```bash
-cd DM_CW
-```
+# Clone the repository
+git clone <repo-url>
+cd fraud-detection-pipeline
 
-### Step 2 — Create a virtual environment
-
-```bash
-python3 -m venv fraud_env
-```
-
-### Step 3 — Activate the environment
-
-#### macOS / Linux
-
-```bash
-source fraud_env/bin/activate
-```
-
-#### Windows
-
-```bash
-fraud_env\Scripts\activate
-```
-
-### Step 4 — Install required packages
-
-```bash
+# Install dependencies
 pip install --upgrade pip
 pip install -r requirements.txt
-```
 
-### Step 5 — Register a new Jupyter kernel
-
-```bash
+#Register a new Jupyter kernel
 python -m ipykernel install --user --name fraud_env --display-name "Fraud Detection Env"
-```
 
-### Step 6 — Launch Jupyter Notebook
-
-```bash
-jupyter notebook
-```
-
-Then open:
-
-```text
-notebooks/preprocessing.ipynb
-```
-
-Select the kernel:
-
-```text
-Fraud Detection Env
+# Place creditcard.csv in /data, then run
+jupyter notebook preprocessing.ipynb
 ```
 
 ---
@@ -146,28 +155,6 @@ DATA_PATH = Path("../data/creditcard.csv")
 ```
 
 This means the notebook moves one directory up from `notebooks/` and then accesses the dataset inside the `data/` folder.
-
----
-
-## Output Description
-
-After the notebook finishes running, the following files will be created in:
-
-```text
-DM_CW/outputs/preprocessed/
-```
-
-### Expected files
-
-```text
-X_train_minimal.csv
-X_test_minimal.csv
-X_train_robust_scaled.csv
-X_test_robust_scaled.csv
-y_train.csv
-y_test.csv
-preprocessing_metadata.json
-```
 
 ---
 
@@ -216,6 +203,15 @@ y_test.csv
 
 ---
 
+## Key Design Decisions
+
+- **Scaler fitted before split = data leakage** — all transformations are fitted on training data only
+- **Stratified split** — without stratification, test folds can contain an unstable number of fraud cases given 0.17% prevalence
+- **SMOTE applied inside training only** — test set left unchanged to reflect real class distribution; SMOTE on full data before split inflates evaluation results
+- **PR-AUC over ROC-AUC** — ROC-AUC is optimistic under severe imbalance; PR-AUC directly reflects minority-class performance
+
+---
+
 ## Reproducibility Notes
 
 This preprocessing workflow follows several best practices to ensure reproducibility:
@@ -228,3 +224,20 @@ This preprocessing workflow follows several best practices to ensure reproducibi
 - metadata describing preprocessing decisions is saved to a JSON file
 
 These practices ensure that experiments across the project team remain consistent, traceable, and methodologically sound.
+
+---
+
+## Individual Contribution
+
+This repository contains my individual contribution to the group project:
+- Complete preprocessing pipeline (schema validation → dual pathway outputs)
+- Isolation Forest: baseline, contamination-aligned, and tuned configurations
+- Approximately 70% of the final group report
+
+Full comparative results across all six models are documented in `report.pdf`.
+
+---
+
+## Academic Context
+
+Group coursework for COMP6337 — Data Mining, University of Southampton, 2025–26. This repository contains individual contributions only. All preprocessing design decisions, Isolation Forest experiments, and report sections are original work.
